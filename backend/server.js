@@ -162,98 +162,177 @@ io.on("connection", (socket) => {
   });
 
 socket.on("transcript", async (data) => {
-    try {
-        console.log("TRANSCRIPT FROM CLIENT:", data);
+  try {
+    console.log("🎤 TRANSCRIPT FROM CLIENT:", data);
 
-        const {
-            meetingId,
-            uid,
-            name,
-            email,
-            text,
-            sentenceId
-        } = data;
+    const {
+      meetingId,
+      uid,
+      name,
+      email,
+      text,
+      sentenceId,
+    } = data || {};
 
-        if (!meetingId || !text) {
-            return;
-        }
-
-        const meeting = await Meeting.findOne({
-            meetingId
-        });
-
-        if (!meeting) {
-            console.log(
-                "Meeting not found:",
-                meetingId
-            );
-            return;
-        }
-
-        // Find speaker
-        const roomParticipants =
-            meetingParticipants.get(meetingId);
-
-        const socketParticipant =
-            roomParticipants
-                ? Array.from(
-                    roomParticipants.values()
-                ).find(
-                    (participant) =>
-                        Number(participant.uid) ===
-                        Number(uid)
-                )
-                : null;
-
-        const mongoParticipant =
-            meeting.members?.find(
-                (member) =>
-                    Number(member.uid) ===
-                    Number(uid)
-            );
-
-        const speaker =
-            name ||
-            socketParticipant?.name ||
-            mongoParticipant?.name ||
-            (Number(uid) === 1 ? "Host" : "Unknown");
-
-        // Save original transcript immediately
-        const transcriptItem = {
-            uid: Number(uid),
-            speaker,
-            text: text,
-            originalText: text,
-            sentenceId: sentenceId || null,
-            timestamp: new Date()
-        };
-
-        meeting.transcript.push(
-            transcriptItem
-        );
-
-        await meeting.save();
-
-        // Send immediately to everyone
-        io.to(meetingId).emit(
-            "transcript",
-            {
-                meetingId,
-                uid: Number(uid),
-                speaker,
-                text,
-                originalText: text,
-                timestamp: transcriptItem.timestamp,
-                sentenceId
-            }
-        );
-
-    } catch (error) {
-        console.error(
-            "Transcript socket error:",
-            error
-        );
+    if (!meetingId || !text) {
+      console.log("⚠️ Missing meetingId or text");
+      return;
     }
+
+    const originalText = String(text).trim();
+
+    if (!originalText) {
+      return;
+    }
+
+    const meeting = await Meeting.findOne({
+      meetingId,
+    });
+
+    if (!meeting) {
+      console.log(
+        "❌ Meeting not found:",
+        meetingId
+      );
+      return;
+    }
+
+    // =====================================================
+    // FIND SPEAKER
+    // =====================================================
+
+    const roomParticipants =
+      meetingParticipants.get(meetingId);
+
+    const socketParticipant =
+      roomParticipants
+        ? Array.from(
+            roomParticipants.values()
+          ).find(
+            (participant) =>
+              Number(participant.uid) ===
+              Number(uid)
+          )
+        : null;
+
+    const mongoParticipant =
+      meeting.members?.find(
+        (member) =>
+          Number(member.uid) ===
+          Number(uid)
+      );
+
+    const speaker =
+      name ||
+      socketParticipant?.name ||
+      mongoParticipant?.name ||
+      (Number(uid) === 1
+        ? "Host"
+        : "Unknown");
+
+    // =====================================================
+    // HINDI / HINGLISH -> ENGLISH
+    // =====================================================
+
+    let translatedText = originalText;
+
+    try {
+      console.log(
+        "🌐 Translating transcript:",
+        originalText
+      );
+
+      translatedText =
+        await translateTranscript(
+          originalText
+        );
+
+      translatedText =
+        String(translatedText || originalText)
+          .trim();
+
+      console.log(
+        "✅ TRANSLATED ENGLISH:",
+        translatedText
+      );
+    } catch (translationError) {
+      console.error(
+        "❌ Translation failed:",
+        translationError
+      );
+
+      // If translation fails,
+      // keep original text instead of losing transcript.
+      translatedText = originalText;
+    }
+
+    // =====================================================
+    // SAVE TO MONGODB
+    // =====================================================
+
+    const transcriptItem = {
+      uid: Number(uid),
+      speaker,
+
+      // English transcript
+      text: translatedText,
+
+      // Original Agora STT text
+      originalText,
+
+      sentenceId:
+        sentenceId || null,
+
+      timestamp: new Date(),
+    };
+
+    meeting.transcript.push(
+      transcriptItem
+    );
+
+    await meeting.save();
+
+    console.log(
+      "💾 Transcript saved to MongoDB:",
+      transcriptItem
+    );
+
+    // =====================================================
+    // SEND ENGLISH TRANSCRIPT TO EVERYONE
+    // =====================================================
+
+    io.to(meetingId).emit(
+      "transcript",
+      {
+        meetingId,
+        uid: Number(uid),
+        speaker,
+
+        // UI receives English
+        text: translatedText,
+
+        // Original Hindi/Hinglish is also available
+        originalText,
+
+        timestamp:
+          transcriptItem.timestamp,
+
+        sentenceId:
+          sentenceId || null,
+      }
+    ); s
+
+    console.log(
+      "📤 English transcript emitted:",
+      translatedText
+    );
+
+  } catch (error) {
+    console.error(
+      "❌ Transcript socket error:",
+      error
+    );
+  }
 });
 
   socket.on("disconnect", () => {
