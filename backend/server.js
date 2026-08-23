@@ -161,178 +161,202 @@ io.on("connection", (socket) => {
     socket.to(meetingId).emit("meeting-ended");
   });
 
-socket.on("transcript", async (data) => {
-  try {
-    console.log("🎤 TRANSCRIPT FROM CLIENT:", data);
-
-    const {
-      meetingId,
-      uid,
-      name,
-      email,
-      text,
-      sentenceId,
-    } = data || {};
-
-    if (!meetingId || !text) {
-      console.log("⚠️ Missing meetingId or text");
-      return;
-    }
-
-    const originalText = String(text).trim();
-
-    if (!originalText) {
-      return;
-    }
-
-    const meeting = await Meeting.findOne({
-      meetingId,
-    });
-
-    if (!meeting) {
-      console.log(
-        "❌ Meeting not found:",
-        meetingId
-      );
-      return;
-    }
-
-    // =====================================================
-    // FIND SPEAKER
-    // =====================================================
-
-    const roomParticipants =
-      meetingParticipants.get(meetingId);
-
-    const socketParticipant =
-      roomParticipants
-        ? Array.from(
-            roomParticipants.values()
-          ).find(
-            (participant) =>
-              Number(participant.uid) ===
-              Number(uid)
-          )
-        : null;
-
-    const mongoParticipant =
-      meeting.members?.find(
-        (member) =>
-          Number(member.uid) ===
-          Number(uid)
-      );
-
-    const speaker =
-      name ||
-      socketParticipant?.name ||
-      mongoParticipant?.name ||
-      (Number(uid) === 1
-        ? "Host"
-        : "Unknown");
-
-    // =====================================================
-    // HINDI / HINGLISH -> ENGLISH
-    // =====================================================
-
-    let translatedText = originalText;
-
+  socket.on("transcript", async (data) => {
     try {
-      console.log(
-        "🌐 Translating transcript:",
-        originalText
-      );
-
-      translatedText =
-        await translateTranscript(
-          originalText
+        console.log(
+            "TRANSCRIPT FROM CLIENT:",
+            data
         );
 
-      translatedText =
-        String(translatedText || originalText)
-          .trim();
+        const {
+            meetingId,
+            uid,
+            name,
+            email,
+            text,
+            sentenceId,
+        } = data || {};
 
-      console.log(
-        "✅ TRANSLATED ENGLISH:",
-        translatedText
-      );
-    } catch (translationError) {
-      console.error(
-        "❌ Translation failed:",
-        translationError
-      );
+        if (!meetingId || !text || !text.trim()) {
+            return;
+        }
 
-      // If translation fails,
-      // keep original text instead of losing transcript.
-      translatedText = originalText;
+        const meeting = await Meeting.findOne({
+            meetingId,
+        });
+
+        if (!meeting) {
+            console.log(
+                "Meeting not found:",
+                meetingId
+            );
+            return;
+        }
+
+        const roomParticipants =
+            meetingParticipants.get(meetingId);
+
+        const socketParticipant =
+            roomParticipants
+                ? Array.from(
+                      roomParticipants.values()
+                  ).find(
+                      (participant) =>
+                          Number(participant.uid) ===
+                          Number(uid)
+                  )
+                : null;
+
+        const mongoParticipant =
+            meeting.members?.find(
+                (member) =>
+                    Number(member.uid) ===
+                    Number(uid)
+            );
+
+        const speaker =
+            name ||
+            socketParticipant?.name ||
+            mongoParticipant?.name ||
+            (Number(uid) === 1
+                ? "Host"
+                : "Unknown");
+
+        const transcriptItem = {
+            uid: Number(uid),
+            speaker,
+            text: text,
+            originalText: text,
+            translatedText: "",
+            sentenceId:
+                sentenceId || Date.now(),
+            timestamp: new Date(),
+        };
+
+        meeting.transcript.push(
+            transcriptItem
+        );
+
+        await meeting.save();
+
+        console.log(
+            " Original transcript saved:",
+            {
+                uid: Number(uid),
+                speaker,
+                text,
+                sentenceId:
+                    transcriptItem.sentenceId,
+            }
+        );
+
+        io.to(meetingId).emit(
+            "transcript",
+            {
+                meetingId,
+                uid: Number(uid),
+                speaker,
+                text,
+                originalText: text,
+                translatedText: "",
+                timestamp:
+                    transcriptItem.timestamp,
+                sentenceId:
+                    transcriptItem.sentenceId,
+            }
+        );
+
+        console.log(
+            " Original transcript emitted immediately"
+        );
+
+        translateTranscript(text)
+            .then(async (translatedText) => {
+
+                if (!translatedText) {
+                    console.log(
+                        " No translation returned"
+                    );
+                    return;
+                }
+
+                console.log(
+                    " English translation:",
+                    translatedText
+                );
+
+                try {
+                    const updatedMeeting =
+                        await Meeting.findOneAndUpdate(
+                            {
+                                meetingId,
+                                "transcript.sentenceId":
+                                    transcriptItem.sentenceId,
+                            },
+                            {
+                                $set: {
+                                    "transcript.$.translatedText":
+                                        translatedText,
+                                },
+                            },
+                            {
+                                new: true,
+                            }
+                        );
+
+                    if (!updatedMeeting) {
+                        console.log(
+                            " Transcript item not found for translation update"
+                        );
+                        return;
+                    }
+
+                    console.log(
+                        " Translation saved to MongoDB"
+                    );
+
+                } catch (dbError) {
+                    console.error(
+                        " Translation DB update failed:",
+                        dbError
+                    );
+                }
+
+                io.to(meetingId).emit(
+                    "transcript-translated",
+                    {
+                        meetingId,
+                        uid: Number(uid),
+                        speaker,
+                        originalText: text,
+                        translatedText,
+                        sentenceId:
+                            transcriptItem.sentenceId,
+                        timestamp:
+                            transcriptItem.timestamp,
+                    }
+                );
+
+                console.log(
+                    " Translation update emitted"
+                );
+
+            })
+            .catch((translationError) => {
+
+                console.error(
+                    " Background translation failed:",
+                    translationError.message
+                );
+            });
+
+    } catch (error) {
+
+        console.error(
+            " Transcript socket error:",
+            error
+        );
     }
-
-    // =====================================================
-    // SAVE TO MONGODB
-    // =====================================================
-
-    const transcriptItem = {
-      uid: Number(uid),
-      speaker,
-
-      // English transcript
-      text: translatedText,
-
-      // Original Agora STT text
-      originalText,
-
-      sentenceId:
-        sentenceId || null,
-
-      timestamp: new Date(),
-    };
-
-    meeting.transcript.push(
-      transcriptItem
-    );
-
-    await meeting.save();
-
-    console.log(
-      "💾 Transcript saved to MongoDB:",
-      transcriptItem
-    );
-
-    // =====================================================
-    // SEND ENGLISH TRANSCRIPT TO EVERYONE
-    // =====================================================
-
-    io.to(meetingId).emit(
-      "transcript",
-      {
-        meetingId,
-        uid: Number(uid),
-        speaker,
-
-        // UI receives English
-        text: translatedText,
-
-        // Original Hindi/Hinglish is also available
-        originalText,
-
-        timestamp:
-          transcriptItem.timestamp,
-
-        sentenceId:
-          sentenceId || null,
-      }
-    ); s
-
-    console.log(
-      "📤 English transcript emitted:",
-      translatedText
-    );
-
-  } catch (error) {
-    console.error(
-      "❌ Transcript socket error:",
-      error
-    );
-  }
 });
 
   socket.on("disconnect", () => {
