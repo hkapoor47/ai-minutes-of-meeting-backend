@@ -18,6 +18,7 @@ const agora = require("./routes/agora");
 const testRoute = require("./routes/test");
 const llmRoute = require("./routes/llm");
 const meetingRoute = require("./routes/meeting");
+const agentRoute = require("./routes/agent");
 const pdfRoute = require("./routes/pdf");
 const translate = require("./routes/translation");
 const { translateTranscript } = require("./services/translationService");
@@ -34,6 +35,7 @@ app.use("/api/llm", llmRoute);
 app.use("/api/test", testRoute);
 app.use("/api/agora", agora);
 app.use("/api/meeting", meetingRoute);
+app.use("/api/agent", agentRoute);
 app.use("/api/pdf", pdfRoute);
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/speech", speech);
@@ -271,19 +273,21 @@ io.on("connection", (socket) => {
         );
 
         translateTranscript(text)
-            .then(async (translatedText) => {
+    .then(async ({ text: translatedText, failed }) => {
 
-                if (!translatedText) {
-                    console.log(
-                        " No translation returned"
-                    );
-                    return;
-                }
+        if (!translatedText) {
+            console.log(
+                " No translation returned"
+            );
+            return;
+        }
 
-                console.log(
-                    " English translation:",
-                    translatedText
-                );
+        console.log(
+            failed
+                ? " Translation failed, using fallback text:"
+                : " English translation:",
+            translatedText
+        );
 
                 try {
                     const updatedMeeting =

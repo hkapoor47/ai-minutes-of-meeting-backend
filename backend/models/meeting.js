@@ -136,6 +136,36 @@ const meetingSchema = new mongoose.Schema(
             default: null,
         },
 
+        // Source and lifecycle fields for the external-agent mode.
+        source: {
+            type: String,
+            enum: ["native", "external"],
+            default: "native",
+        },
+        provider: {
+            type: String,
+            enum: ["agora", "google_meet", "teams", "zoom", null],
+            default: "agora",
+        },
+        externalMeetingUrl: { type: String, default: "" },
+        externalMeetingId: { type: String, default: "" },
+        participantEmails: { type: [String], default: [] },
+        agentStatus: {
+            type: String,
+            enum: ["pending", "joining", "in_meeting", "processing", "completed", "failed"],
+            default: "pending",
+        },
+        transcriptStatus: {
+            type: String,
+            enum: ["waiting", "ready", "failed"],
+            default: "waiting",
+        },
+        emailStatus: {
+            type: String,
+            enum: ["pending", "sent", "partial", "failed"],
+            default: "pending",
+        },
+
         isRecording: {
             type: Boolean,
             default: false,
