@@ -24,6 +24,7 @@
     "nodemailer": "^9.0.4",
     "nodemon": "^3.1.14",
     "pdfkit": "^0.19.1",
+    "playwright": "^1.64.1",
     "protobufjs": "^8.7.1",
     "resend": "^6.18.1",
     "socket.io": "^4.8.3",

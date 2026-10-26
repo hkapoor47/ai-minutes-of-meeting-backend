@@ -23,6 +23,9 @@ const pdfRoute = require("./routes/pdf");
 const translate = require("./routes/translation");
 const { translateTranscript } = require("./services/translationService");
 
+const browserAgentRoutes = require("./routes/browserAgent");
+
+
 app.use(express.json());
 app.use(
   cors({
@@ -40,6 +43,7 @@ app.use("/api/pdf", pdfRoute);
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/speech", speech);
 app.use("/api/translate", translate);
+app.use("/api/browser-agent", browserAgentRoutes);
 
 const server = http.createServer(app);
 const io = new Server(server, {
